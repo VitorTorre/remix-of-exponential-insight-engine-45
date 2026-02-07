@@ -1122,7 +1122,7 @@ serve(async (req) => {
             timeframe: testTimeframe,
             pattern,
             context: context.type,
-            matchedScenario: matchedScenario?.scenario_number,
+            matchedScenario: matchedScenario?.number,
             result: actualResult,
             volatility,
             isShock,
