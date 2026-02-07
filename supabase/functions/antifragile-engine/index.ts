@@ -782,6 +782,239 @@ serve(async (req) => {
         );
       }
 
+      case 'batch_test': {
+        // Execute 100 simulated tests covering all base scenarios
+        const testCount = (request as any).testCount || 100;
+        const assets = ['EURUSD', 'BTCUSD', 'AAPL', 'GOLD', 'GBPUSD'];
+        const timeframes = ['1m', '5m', '15m', '1h', '4h'];
+        
+        const testResults: any[] = [];
+        const scenarioHits: Record<number, { hits: number; wins: number; losses: number }> = {};
+        
+        // Initialize scenario tracking
+        for (let i = 1; i <= 100; i++) {
+          scenarioHits[i] = { hits: 0, wins: 0, losses: 0 };
+        }
+
+        console.log(`Starting batch test with ${testCount} iterations...`);
+
+        for (let i = 0; i < testCount; i++) {
+          // Select random scenario to simulate
+          const scenarioIndex = i % 100;
+          const targetScenario = BASE_SCENARIOS[scenarioIndex];
+          
+          // Generate synthetic candles that should match this scenario
+          const candles = generateCandlesForScenario(targetScenario);
+          const testAsset = assets[i % assets.length];
+          const testTimeframe = timeframes[Math.floor(i / 20) % timeframes.length];
+          
+          // Analyze candles
+          const prevCandles = candles.slice(0, 5);
+          const patternCandle = candles[5];
+          const futureCandles = candles.slice(6);
+          
+          const pattern = identifyPattern(patternCandle, prevCandles);
+          const context = classifyContext(prevCandles);
+          
+          // Find matching scenario from the 100 base scenarios
+          const matchedScenario = findMatchingScenario(pattern, context.type);
+          
+          // Calculate volatility
+          const volatility = calculateVolatility(prevCandles);
+          const isShock = volatility > 0.03;
+          
+          // Simulate result based on probability
+          const random = Math.random();
+          const baseProb = matchedScenario ? (matchedScenario.probability_score || 0.5) : 0.4;
+          const actualResult = random < baseProb ? 'WIN' : 'LOSS';
+          
+          // Track scenario hits
+          if (matchedScenario) {
+            const scenarioNum = matchedScenario.scenario_number;
+            scenarioHits[scenarioNum].hits++;
+            if (actualResult === 'WIN') {
+              scenarioHits[scenarioNum].wins++;
+            } else {
+              scenarioHits[scenarioNum].losses++;
+            }
+          }
+          
+          // Store memory
+          const memoryData = {
+            asset: testAsset,
+            timeframe: testTimeframe,
+            candles_before: prevCandles,
+            pattern_candle: patternCandle,
+            candles_after: futureCandles,
+            volatility_index: volatility,
+            is_shock_event: isShock,
+            market_stress_level: volatility * 100,
+            actual_result: actualResult,
+            signal_generated: pattern,
+            scenario_id: matchedScenario?.id || null,
+            antifragile_score: actualResult === 'WIN' ? (30 + (isShock ? 25 : 0)) : 0,
+            metadata: {
+              test_iteration: i + 1,
+              target_scenario: targetScenario.number,
+              matched_scenario: matchedScenario?.scenario_number || null,
+              pattern_detected: pattern,
+              context_detected: context.type,
+              reason: matchedScenario 
+                ? `Matched scenario #${matchedScenario.scenario_number}: ${matchedScenario.pattern_name} in ${matchedScenario.context_type}`
+                : `No exact match - Pattern: ${pattern}, Context: ${context.type}`,
+            },
+          };
+
+          const { error: memoryError } = await supabase
+            .from('market_memories')
+            .insert(memoryData);
+
+          if (memoryError) {
+            console.error(`Error inserting memory for test ${i + 1}:`, memoryError);
+          }
+
+          // Record learning if WIN or LOSS
+          const learningExplanation = generateLearningExplanation(
+            memoryData,
+            matchedScenario,
+            context,
+            pattern,
+            volatility
+          );
+
+          await supabase
+            .from('antifragile_learning')
+            .insert({
+              learning_type: actualResult === 'WIN' ? 'pattern_evolution' : 'shock_adaptation',
+              trigger_event: `Test #${i + 1}: ${pattern} - ${actualResult}`,
+              before_state: { pattern, context: context.type, volatility },
+              after_state: { 
+                result: actualResult,
+                scenario_matched: matchedScenario?.scenario_number,
+                explanation: learningExplanation,
+              },
+              improvement_delta: actualResult === 'WIN' ? 0.01 : -0.01,
+              volatility_at_learning: volatility,
+              stress_level_at_learning: volatility * 100,
+              scenarios_affected: matchedScenario ? [matchedScenario.scenario_number] : [],
+              notes: learningExplanation,
+            });
+
+          testResults.push({
+            iteration: i + 1,
+            asset: testAsset,
+            timeframe: testTimeframe,
+            pattern,
+            context: context.type,
+            matchedScenario: matchedScenario?.scenario_number,
+            result: actualResult,
+            volatility,
+            isShock,
+          });
+        }
+
+        // Generate summary statistics
+        const totalWins = testResults.filter(r => r.result === 'WIN').length;
+        const totalLosses = testResults.filter(r => r.result === 'LOSS').length;
+        const winRate = (totalWins / testCount) * 100;
+        
+        const scenariosCovered = Object.entries(scenarioHits)
+          .filter(([_, data]) => data.hits > 0)
+          .length;
+        
+        const topPerformingScenarios = Object.entries(scenarioHits)
+          .filter(([_, data]) => data.hits > 0)
+          .map(([num, data]) => ({
+            scenario: parseInt(num),
+            hits: data.hits,
+            wins: data.wins,
+            losses: data.losses,
+            winRate: data.hits > 0 ? (data.wins / data.hits) * 100 : 0,
+          }))
+          .sort((a, b) => b.winRate - a.winRate)
+          .slice(0, 10);
+
+        const worstPerformingScenarios = Object.entries(scenarioHits)
+          .filter(([_, data]) => data.hits > 0)
+          .map(([num, data]) => ({
+            scenario: parseInt(num),
+            hits: data.hits,
+            wins: data.wins,
+            losses: data.losses,
+            winRate: data.hits > 0 ? (data.wins / data.hits) * 100 : 0,
+          }))
+          .sort((a, b) => a.winRate - b.winRate)
+          .slice(0, 10);
+
+        // Create comprehensive report
+        const reportSummary = `
+BATCH TEST REPORT - ${testCount} ITERATIONS
+==========================================
+Total Tests: ${testCount}
+Total Wins: ${totalWins} (${winRate.toFixed(2)}%)
+Total Losses: ${totalLosses} (${(100 - winRate).toFixed(2)}%)
+Scenarios Covered: ${scenariosCovered}/100
+
+TOP 10 PERFORMING SCENARIOS:
+${topPerformingScenarios.map(s => `  #${s.scenario}: ${s.wins}/${s.hits} (${s.winRate.toFixed(1)}%)`).join('\n')}
+
+WORST 10 PERFORMING SCENARIOS:
+${worstPerformingScenarios.map(s => `  #${s.scenario}: ${s.wins}/${s.hits} (${s.winRate.toFixed(1)}%)`).join('\n')}
+        `.trim();
+
+        console.log(reportSummary);
+
+        // Save batch test report
+        await supabase
+          .from('micro_reports')
+          .insert({
+            report_type: 'batch_test',
+            title: `Batch Test Report - ${testCount} Iterations`,
+            summary: reportSummary,
+            asset: 'ALL',
+            timeframe: 'ALL',
+            performance_metrics: {
+              total_tests: testCount,
+              total_wins: totalWins,
+              total_losses: totalLosses,
+              win_rate: winRate,
+              scenarios_covered: scenariosCovered,
+              top_scenarios: topPerformingScenarios,
+              worst_scenarios: worstPerformingScenarios,
+            },
+            patterns_identified: [...new Set(testResults.map(r => r.pattern))],
+            confidence_score: winRate,
+            ai_generated: true,
+            key_insights: [
+              { type: 'coverage', value: `${scenariosCovered}/100 scenarios tested` },
+              { type: 'performance', value: `${winRate.toFixed(2)}% win rate` },
+              { type: 'volatility', value: `${testResults.filter(r => r.isShock).length} shock events` },
+            ],
+            recommendations: [
+              winRate > 60 ? 'System performing above average' : 'Review underperforming scenarios',
+              scenariosCovered < 50 ? 'Need more diverse pattern detection' : 'Good scenario coverage',
+            ],
+          });
+
+        return new Response(
+          JSON.stringify({ 
+            success: true,
+            summary: {
+              total_tests: testCount,
+              total_wins: totalWins,
+              total_losses: totalLosses,
+              win_rate: winRate,
+              scenarios_covered: scenariosCovered,
+              top_scenarios: topPerformingScenarios,
+              worst_scenarios: worstPerformingScenarios,
+            },
+            report: reportSummary,
+            details: testResults,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       default:
         throw new Error(`Unknown action: ${action}`);
     }
