@@ -1000,7 +1000,7 @@ serve(async (req) => {
 
       case 'batch_test': {
         // Execute 100 simulated tests covering all base scenarios
-        const testCount = (request as any).testCount || 100;
+        const testCount = (body as any).testCount || 100;
         const assets = ['EURUSD', 'BTCUSD', 'AAPL', 'GOLD', 'GBPUSD'];
         const timeframes = ['1m', '5m', '15m', '1h', '4h'];
         
