@@ -326,6 +326,214 @@ function matchScenario(
   return matched;
 }
 
+// Find matching scenario from BASE_SCENARIOS
+function findMatchingScenario(pattern: string, contextType: string): typeof BASE_SCENARIOS[0] | null {
+  // First try exact match
+  let matched = BASE_SCENARIOS.find(s => 
+    s.pattern.toLowerCase().includes(pattern.toLowerCase()) &&
+    s.context_type === contextType
+  );
+  
+  // Fallback to pattern match only
+  if (!matched) {
+    matched = BASE_SCENARIOS.find(s => 
+      s.pattern.toLowerCase().includes(pattern.toLowerCase())
+    );
+  }
+  
+  return matched || null;
+}
+
+// Calculate volatility from candles
+function calculateVolatility(candles: CandleData[]): number {
+  if (candles.length < 2) return 0;
+  
+  const changes = candles.map((c, i) => {
+    if (i === 0) return 0;
+    return Math.abs((c.close - candles[i - 1].close) / candles[i - 1].close);
+  }).slice(1);
+  
+  return changes.reduce((a, b) => a + b, 0) / changes.length;
+}
+
+// Generate synthetic candles for a given scenario
+function generateCandlesForScenario(scenario: typeof BASE_SCENARIOS[0]): CandleData[] {
+  const candles: CandleData[] = [];
+  let basePrice = 100;
+  const now = Date.now();
+  
+  // Generate 5 context candles based on scenario context
+  for (let i = 0; i < 5; i++) {
+    const isBullish = scenario.context_type === 'tendência forte' && scenario.direction === 'UP';
+    const isBearish = scenario.context_type === 'tendência forte' && scenario.direction === 'DOWN';
+    const isConsolidation = scenario.context_type === 'consolidação';
+    const isExhaustion = scenario.context_type === 'exaustão';
+    const isWeakTrend = scenario.context_type === 'tendência fraca';
+    
+    let change = 0;
+    let volatilityMult = 1;
+    
+    if (isBullish) {
+      change = 0.01 + Math.random() * 0.02; // 1-3% up
+    } else if (isBearish) {
+      change = -(0.01 + Math.random() * 0.02); // 1-3% down
+    } else if (isConsolidation) {
+      change = (Math.random() - 0.5) * 0.005; // small random
+      volatilityMult = 0.5;
+    } else if (isExhaustion) {
+      // Strong moves followed by weakening
+      change = (i < 3 ? 0.02 : 0.005) * (Math.random() > 0.5 ? 1 : -1);
+      volatilityMult = 1.5;
+    } else if (isWeakTrend) {
+      change = (Math.random() - 0.3) * 0.01; // slight upward bias
+    }
+    
+    const open = basePrice;
+    const close = basePrice * (1 + change);
+    const range = Math.abs(close - open) * (1 + Math.random() * volatilityMult);
+    const high = Math.max(open, close) + range * 0.3;
+    const low = Math.min(open, close) - range * 0.3;
+    
+    candles.push({
+      open,
+      high,
+      low,
+      close,
+      volume: 1000 + Math.random() * 5000,
+      timestamp: new Date(now - (9 - i) * 60000).toISOString(),
+    });
+    
+    basePrice = close;
+  }
+  
+  // Generate pattern candle (candle 6)
+  const patternCandle = generatePatternCandle(scenario.pattern, basePrice, now - 4 * 60000);
+  candles.push(patternCandle);
+  basePrice = patternCandle.close;
+  
+  // Generate 4 future candles based on expected direction
+  for (let i = 0; i < 4; i++) {
+    let change = 0;
+    if (scenario.direction === 'UP') {
+      change = 0.005 + Math.random() * 0.015;
+    } else if (scenario.direction === 'DOWN') {
+      change = -(0.005 + Math.random() * 0.015);
+    } else {
+      change = (Math.random() - 0.5) * 0.01;
+    }
+    
+    const open = basePrice;
+    const close = basePrice * (1 + change);
+    const high = Math.max(open, close) * (1 + Math.random() * 0.005);
+    const low = Math.min(open, close) * (1 - Math.random() * 0.005);
+    
+    candles.push({
+      open,
+      high,
+      low,
+      close,
+      volume: 1000 + Math.random() * 5000,
+      timestamp: new Date(now - (3 - i) * 60000).toISOString(),
+    });
+    
+    basePrice = close;
+  }
+  
+  return candles;
+}
+
+// Generate specific pattern candle
+function generatePatternCandle(pattern: string, basePrice: number, timestamp: number): CandleData {
+  let open = basePrice;
+  let close = basePrice;
+  let high = basePrice;
+  let low = basePrice;
+  
+  const patternLower = pattern.toLowerCase();
+  
+  if (patternLower.includes('martelo') && !patternLower.includes('invertido')) {
+    // Hammer: small body, long lower shadow
+    const body = basePrice * 0.005;
+    const lowerShadow = body * 3;
+    open = basePrice;
+    close = basePrice + body;
+    low = basePrice - lowerShadow;
+    high = close + body * 0.2;
+  } else if (patternLower.includes('martelo invertido') || patternLower.includes('invertido')) {
+    // Inverted hammer: small body, long upper shadow
+    const body = basePrice * 0.005;
+    const upperShadow = body * 3;
+    open = basePrice;
+    close = basePrice + body;
+    high = close + upperShadow;
+    low = open - body * 0.2;
+  } else if (patternLower.includes('doji')) {
+    // Doji: very small body
+    open = basePrice;
+    close = basePrice + basePrice * 0.001;
+    high = basePrice + basePrice * 0.01;
+    low = basePrice - basePrice * 0.01;
+  } else if (patternLower.includes('engolfo')) {
+    // Engulfing: large body
+    const body = basePrice * 0.02;
+    open = basePrice;
+    close = patternLower.includes('alta') ? basePrice + body : basePrice - body;
+    high = Math.max(open, close) + basePrice * 0.003;
+    low = Math.min(open, close) - basePrice * 0.003;
+  } else if (patternLower.includes('marubozu')) {
+    // Marubozu: full body, no shadows
+    const body = basePrice * 0.02;
+    open = basePrice;
+    close = patternLower.includes('alta') || patternLower.includes('bullish') 
+      ? basePrice + body 
+      : basePrice - body;
+    high = Math.max(open, close);
+    low = Math.min(open, close);
+  } else if (patternLower.includes('spinning') || patternLower.includes('top')) {
+    // Spinning top: small body, equal shadows
+    const body = basePrice * 0.003;
+    const shadow = body * 2;
+    open = basePrice;
+    close = basePrice + body;
+    high = close + shadow;
+    low = open - shadow;
+  } else if (patternLower.includes('estrela')) {
+    // Star: very small body with gap
+    open = basePrice;
+    close = basePrice + basePrice * 0.002;
+    high = basePrice + basePrice * 0.01;
+    low = basePrice - basePrice * 0.01;
+  } else if (patternLower.includes('soldado') || patternLower.includes('soldiers')) {
+    // Strong bullish candle
+    open = basePrice;
+    close = basePrice + basePrice * 0.015;
+    high = close + basePrice * 0.002;
+    low = open - basePrice * 0.002;
+  } else if (patternLower.includes('corvo') || patternLower.includes('crows')) {
+    // Strong bearish candle
+    open = basePrice;
+    close = basePrice - basePrice * 0.015;
+    high = open + basePrice * 0.002;
+    low = close - basePrice * 0.002;
+  } else {
+    // Default candle
+    const change = (Math.random() - 0.5) * 0.01;
+    open = basePrice;
+    close = basePrice * (1 + change);
+    high = Math.max(open, close) * 1.005;
+    low = Math.min(open, close) * 0.995;
+  }
+  
+  return {
+    open,
+    high,
+    low,
+    close,
+    volume: 2000 + Math.random() * 8000,
+    timestamp: new Date(timestamp).toISOString(),
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
