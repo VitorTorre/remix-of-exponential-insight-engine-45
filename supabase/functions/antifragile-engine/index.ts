@@ -438,18 +438,36 @@ serve(async (req) => {
           });
         }
 
-        // Record learning event
+        // Generate detailed explanation for WIN or LOSS
+        const analysisExplanation = generateLearningExplanation(
+          memory,
+          operationResult,
+          antifragileScore
+        );
+
+        // Record learning event with detailed explanation
         await supabase
           .from('antifragile_learning')
           .insert({
             learning_type: memory.is_shock_event ? 'shock_adaptation' : 'pattern_evolution',
             trigger_event: `${operationResult} em ${memory.asset}`,
-            before_state: { scenario_probability: memory.pattern_scenarios?.probability_score },
-            after_state: { antifragile_score: antifragileScore },
+            before_state: { 
+              scenario_probability: memory.pattern_scenarios?.probability_score,
+              pattern: memory.pattern_scenarios?.pattern_name,
+              context: memory.pattern_scenarios?.context_description,
+              volatility: memory.volatility_index,
+              signal: memory.signal_generated,
+            },
+            after_state: { 
+              antifragile_score: antifragileScore,
+              learning_weight: operationResult === 'WIN' ? 1.2 : 0.8,
+              explanation: analysisExplanation,
+            },
             improvement_delta: antifragileScore - (memory.antifragile_score || 0),
             scenarios_affected: memory.scenario_id ? [memory.pattern_scenarios?.scenario_number] : [],
             volatility_at_learning: memory.volatility_index,
             stress_level_at_learning: memory.market_stress_level,
+            notes: analysisExplanation,
           });
 
         // Create annotation
