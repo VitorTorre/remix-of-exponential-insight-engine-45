@@ -10,6 +10,7 @@ import CapitalSelector from "@/components/CapitalSelector";
 import TimeframeSelector from "@/components/TimeframeSelector";
 import AnalysisReport from "@/components/AnalysisReport";
 import OrderFlowAnalysis from "@/components/OrderFlowAnalysis";
+import AntifragileDashboard from "@/components/AntifragileDashboard";
 import { Operation } from "@/types/trading";
 
 const Index = () => {
