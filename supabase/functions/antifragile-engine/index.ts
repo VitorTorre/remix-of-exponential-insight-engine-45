@@ -129,13 +129,14 @@ interface CandleData {
 }
 
 interface MetaAnalysisRequest {
-  action: 'analyze' | 'learn' | 'export' | 'seed_scenarios' | 'get_memories' | 'create_report';
+  action: 'analyze' | 'learn' | 'export' | 'seed_scenarios' | 'get_memories' | 'create_report' | 'batch_test';
   asset?: string;
   timeframe?: string;
   candles?: CandleData[];
   operationResult?: 'WIN' | 'LOSS' | 'NEUTRAL';
   exportType?: 'operations' | 'micro_reports';
   filters?: Record<string, any>;
+  testCount?: number;
 }
 
 // Identificar padrão de vela
@@ -249,52 +250,60 @@ function calculateAntifragileScore(
 // Generate detailed explanation for WIN or LOSS
 function generateLearningExplanation(
   memory: any,
-  result: 'WIN' | 'LOSS' | 'NEUTRAL',
-  antifragileScore: number
+  matchedScenario: any,
+  context: { type: string; description: string },
+  pattern: string,
+  volatility: number
 ): string {
-  const pattern = memory.pattern_scenarios?.pattern_name || 'Padrão não identificado';
-  const context = memory.pattern_scenarios?.context_description || 'Contexto não classificado';
-  const expectedDirection = memory.pattern_scenarios?.expected_direction || 'LATERAL';
-  const volatility = ((memory.volatility_index || 0) * 100).toFixed(2);
+  const result = memory.actual_result || 'NEUTRAL';
+  const scenarioName = matchedScenario?.pattern || pattern;
+  const contextDesc = matchedScenario?.context || context.description;
+  const expectedDirection = matchedScenario?.direction || 'LATERAL';
+  const volPercent = (volatility * 100).toFixed(2);
   const isShock = memory.is_shock_event;
+  const antifragileScore = memory.antifragile_score || 0;
   
   if (result === 'WIN') {
-    let explanation = `✅ ACERTO: ${pattern} em contexto ${context}. `;
+    let explanation = `✅ ACERTO: ${scenarioName} em contexto ${contextDesc}. `;
     
     if (isShock) {
-      explanation += `DESTAQUE: Operação bem-sucedida durante evento de choque (vol: ${volatility}%). `;
+      explanation += `DESTAQUE: Operação bem-sucedida durante evento de choque (vol: ${volPercent}%). `;
       explanation += `O sistema demonstrou antifragilidade ao lucrar em condições extremas. `;
-    } else if (parseFloat(volatility) > 2) {
-      explanation += `Volatilidade elevada (${volatility}%) indicou oportunidade. `;
+    } else if (volatility > 0.02) {
+      explanation += `Volatilidade elevada (${volPercent}%) indicou oportunidade. `;
     } else {
-      explanation += `Condições de mercado normais (vol: ${volatility}%). `;
+      explanation += `Condições de mercado normais (vol: ${volPercent}%). `;
     }
     
     explanation += `Direção esperada: ${expectedDirection}. `;
     explanation += `Score antifrágil: ${antifragileScore}. `;
     explanation += `REFORÇO: Este padrão deve ser priorizado em contextos similares.`;
     
+    if (matchedScenario) {
+      explanation += ` Cenário #${matchedScenario.number} validado.`;
+    }
+    
     return explanation;
   } else if (result === 'LOSS') {
-    let explanation = `❌ ERRO: ${pattern} em contexto ${context}. `;
+    let explanation = `❌ ERRO: ${scenarioName} em contexto ${contextDesc}. `;
     
     if (isShock) {
-      explanation += `ALERTA: Falha durante evento de choque (vol: ${volatility}%). `;
+      explanation += `ALERTA: Falha durante evento de choque (vol: ${volPercent}%). `;
       explanation += `O sistema precisa se adaptar para volatilidade extrema. `;
-    } else if (parseFloat(volatility) < 0.5) {
-      explanation += `Volatilidade muito baixa (${volatility}%) gerou sinal fraco. `;
+    } else if (volatility < 0.005) {
+      explanation += `Volatilidade muito baixa (${volPercent}%) gerou sinal fraco. `;
       explanation += `APRENDIZADO: Evitar operações em mercados laterais sem direção. `;
     } else {
-      explanation += `Volatilidade: ${volatility}%. `;
+      explanation += `Volatilidade: ${volPercent}%. `;
     }
     
     explanation += `Direção esperada: ${expectedDirection}, porém mercado não confirmou. `;
     explanation += `CORREÇÃO NECESSÁRIA: `;
     
-    if (memory.pattern_scenarios?.probability_score < 0.5) {
-      explanation += `Probabilidade do cenário era baixa (${((memory.pattern_scenarios?.probability_score || 0) * 100).toFixed(0)}%). Aumentar filtro de qualidade.`;
+    if (matchedScenario) {
+      explanation += `Cenário #${matchedScenario.number} falhou. Revisar condições de entrada.`;
     } else {
-      explanation += `Verificar se o contexto foi corretamente identificado. Considerar indicadores adicionais.`;
+      explanation += `Nenhum cenário correspondente encontrado. Considerar adicionar novo padrão.`;
     }
     
     return explanation;
@@ -323,6 +332,214 @@ function matchScenario(
   }
   
   return matched;
+}
+
+// Find matching scenario from BASE_SCENARIOS
+function findMatchingScenario(pattern: string, contextType: string): typeof BASE_SCENARIOS[0] | null {
+  // First try exact match
+  let matched = BASE_SCENARIOS.find(s => 
+    s.pattern.toLowerCase().includes(pattern.toLowerCase()) &&
+    s.context_type === contextType
+  );
+  
+  // Fallback to pattern match only
+  if (!matched) {
+    matched = BASE_SCENARIOS.find(s => 
+      s.pattern.toLowerCase().includes(pattern.toLowerCase())
+    );
+  }
+  
+  return matched || null;
+}
+
+// Calculate volatility from candles
+function calculateVolatility(candles: CandleData[]): number {
+  if (candles.length < 2) return 0;
+  
+  const changes = candles.map((c, i) => {
+    if (i === 0) return 0;
+    return Math.abs((c.close - candles[i - 1].close) / candles[i - 1].close);
+  }).slice(1);
+  
+  return changes.reduce((a, b) => a + b, 0) / changes.length;
+}
+
+// Generate synthetic candles for a given scenario
+function generateCandlesForScenario(scenario: typeof BASE_SCENARIOS[0]): CandleData[] {
+  const candles: CandleData[] = [];
+  let basePrice = 100;
+  const now = Date.now();
+  
+  // Generate 5 context candles based on scenario context
+  for (let i = 0; i < 5; i++) {
+    const isBullish = scenario.context_type === 'tendência forte' && scenario.direction === 'UP';
+    const isBearish = scenario.context_type === 'tendência forte' && scenario.direction === 'DOWN';
+    const isConsolidation = scenario.context_type === 'consolidação';
+    const isExhaustion = scenario.context_type === 'exaustão';
+    const isWeakTrend = scenario.context_type === 'tendência fraca';
+    
+    let change = 0;
+    let volatilityMult = 1;
+    
+    if (isBullish) {
+      change = 0.01 + Math.random() * 0.02; // 1-3% up
+    } else if (isBearish) {
+      change = -(0.01 + Math.random() * 0.02); // 1-3% down
+    } else if (isConsolidation) {
+      change = (Math.random() - 0.5) * 0.005; // small random
+      volatilityMult = 0.5;
+    } else if (isExhaustion) {
+      // Strong moves followed by weakening
+      change = (i < 3 ? 0.02 : 0.005) * (Math.random() > 0.5 ? 1 : -1);
+      volatilityMult = 1.5;
+    } else if (isWeakTrend) {
+      change = (Math.random() - 0.3) * 0.01; // slight upward bias
+    }
+    
+    const open = basePrice;
+    const close = basePrice * (1 + change);
+    const range = Math.abs(close - open) * (1 + Math.random() * volatilityMult);
+    const high = Math.max(open, close) + range * 0.3;
+    const low = Math.min(open, close) - range * 0.3;
+    
+    candles.push({
+      open,
+      high,
+      low,
+      close,
+      volume: 1000 + Math.random() * 5000,
+      timestamp: new Date(now - (9 - i) * 60000).toISOString(),
+    });
+    
+    basePrice = close;
+  }
+  
+  // Generate pattern candle (candle 6)
+  const patternCandle = generatePatternCandle(scenario.pattern, basePrice, now - 4 * 60000);
+  candles.push(patternCandle);
+  basePrice = patternCandle.close;
+  
+  // Generate 4 future candles based on expected direction
+  for (let i = 0; i < 4; i++) {
+    let change = 0;
+    if (scenario.direction === 'UP') {
+      change = 0.005 + Math.random() * 0.015;
+    } else if (scenario.direction === 'DOWN') {
+      change = -(0.005 + Math.random() * 0.015);
+    } else {
+      change = (Math.random() - 0.5) * 0.01;
+    }
+    
+    const open = basePrice;
+    const close = basePrice * (1 + change);
+    const high = Math.max(open, close) * (1 + Math.random() * 0.005);
+    const low = Math.min(open, close) * (1 - Math.random() * 0.005);
+    
+    candles.push({
+      open,
+      high,
+      low,
+      close,
+      volume: 1000 + Math.random() * 5000,
+      timestamp: new Date(now - (3 - i) * 60000).toISOString(),
+    });
+    
+    basePrice = close;
+  }
+  
+  return candles;
+}
+
+// Generate specific pattern candle
+function generatePatternCandle(pattern: string, basePrice: number, timestamp: number): CandleData {
+  let open = basePrice;
+  let close = basePrice;
+  let high = basePrice;
+  let low = basePrice;
+  
+  const patternLower = pattern.toLowerCase();
+  
+  if (patternLower.includes('martelo') && !patternLower.includes('invertido')) {
+    // Hammer: small body, long lower shadow
+    const body = basePrice * 0.005;
+    const lowerShadow = body * 3;
+    open = basePrice;
+    close = basePrice + body;
+    low = basePrice - lowerShadow;
+    high = close + body * 0.2;
+  } else if (patternLower.includes('martelo invertido') || patternLower.includes('invertido')) {
+    // Inverted hammer: small body, long upper shadow
+    const body = basePrice * 0.005;
+    const upperShadow = body * 3;
+    open = basePrice;
+    close = basePrice + body;
+    high = close + upperShadow;
+    low = open - body * 0.2;
+  } else if (patternLower.includes('doji')) {
+    // Doji: very small body
+    open = basePrice;
+    close = basePrice + basePrice * 0.001;
+    high = basePrice + basePrice * 0.01;
+    low = basePrice - basePrice * 0.01;
+  } else if (patternLower.includes('engolfo')) {
+    // Engulfing: large body
+    const body = basePrice * 0.02;
+    open = basePrice;
+    close = patternLower.includes('alta') ? basePrice + body : basePrice - body;
+    high = Math.max(open, close) + basePrice * 0.003;
+    low = Math.min(open, close) - basePrice * 0.003;
+  } else if (patternLower.includes('marubozu')) {
+    // Marubozu: full body, no shadows
+    const body = basePrice * 0.02;
+    open = basePrice;
+    close = patternLower.includes('alta') || patternLower.includes('bullish') 
+      ? basePrice + body 
+      : basePrice - body;
+    high = Math.max(open, close);
+    low = Math.min(open, close);
+  } else if (patternLower.includes('spinning') || patternLower.includes('top')) {
+    // Spinning top: small body, equal shadows
+    const body = basePrice * 0.003;
+    const shadow = body * 2;
+    open = basePrice;
+    close = basePrice + body;
+    high = close + shadow;
+    low = open - shadow;
+  } else if (patternLower.includes('estrela')) {
+    // Star: very small body with gap
+    open = basePrice;
+    close = basePrice + basePrice * 0.002;
+    high = basePrice + basePrice * 0.01;
+    low = basePrice - basePrice * 0.01;
+  } else if (patternLower.includes('soldado') || patternLower.includes('soldiers')) {
+    // Strong bullish candle
+    open = basePrice;
+    close = basePrice + basePrice * 0.015;
+    high = close + basePrice * 0.002;
+    low = open - basePrice * 0.002;
+  } else if (patternLower.includes('corvo') || patternLower.includes('crows')) {
+    // Strong bearish candle
+    open = basePrice;
+    close = basePrice - basePrice * 0.015;
+    high = open + basePrice * 0.002;
+    low = close - basePrice * 0.002;
+  } else {
+    // Default candle
+    const change = (Math.random() - 0.5) * 0.01;
+    open = basePrice;
+    close = basePrice * (1 + change);
+    high = Math.max(open, close) * 1.005;
+    low = Math.min(open, close) * 0.995;
+  }
+  
+  return {
+    open,
+    high,
+    low,
+    close,
+    volume: 2000 + Math.random() * 8000,
+    timestamp: new Date(timestamp).toISOString(),
+  };
 }
 
 serve(async (req) => {
@@ -776,6 +993,239 @@ serve(async (req) => {
             success: true, 
             memories: memories || [],
             learnings: learnings || [],
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      case 'batch_test': {
+        // Execute 100 simulated tests covering all base scenarios
+        const testCount = (body as any).testCount || 100;
+        const assets = ['EURUSD', 'BTCUSD', 'AAPL', 'GOLD', 'GBPUSD'];
+        const timeframes = ['1m', '5m', '15m', '1h', '4h'];
+        
+        const testResults: any[] = [];
+        const scenarioHits: Record<number, { hits: number; wins: number; losses: number }> = {};
+        
+        // Initialize scenario tracking
+        for (let i = 1; i <= 100; i++) {
+          scenarioHits[i] = { hits: 0, wins: 0, losses: 0 };
+        }
+
+        console.log(`Starting batch test with ${testCount} iterations...`);
+
+        for (let i = 0; i < testCount; i++) {
+          // Select random scenario to simulate
+          const scenarioIndex = i % 100;
+          const targetScenario = BASE_SCENARIOS[scenarioIndex];
+          
+          // Generate synthetic candles that should match this scenario
+          const candles = generateCandlesForScenario(targetScenario);
+          const testAsset = assets[i % assets.length];
+          const testTimeframe = timeframes[Math.floor(i / 20) % timeframes.length];
+          
+          // Analyze candles
+          const prevCandles = candles.slice(0, 5);
+          const patternCandle = candles[5];
+          const futureCandles = candles.slice(6);
+          
+          const pattern = identifyPattern(patternCandle, prevCandles);
+          const context = classifyContext(prevCandles);
+          
+          // Find matching scenario from the 100 base scenarios
+          const matchedScenario = findMatchingScenario(pattern, context.type);
+          
+          // Calculate volatility
+          const volatility = calculateVolatility(prevCandles);
+          const isShock = volatility > 0.03;
+          
+          // Simulate result based on probability
+          const random = Math.random();
+          const baseProb = matchedScenario ? 0.5 : 0.4;
+          const actualResult = random < baseProb ? 'WIN' : 'LOSS';
+          
+          // Track scenario hits
+          if (matchedScenario) {
+            const scenarioNum = matchedScenario.number;
+            scenarioHits[scenarioNum].hits++;
+            if (actualResult === 'WIN') {
+              scenarioHits[scenarioNum].wins++;
+            } else {
+              scenarioHits[scenarioNum].losses++;
+            }
+          }
+          
+          // Store memory
+          const memoryData = {
+            asset: testAsset,
+            timeframe: testTimeframe,
+            candles_before: prevCandles,
+            pattern_candle: patternCandle,
+            candles_after: futureCandles,
+            volatility_index: volatility,
+            is_shock_event: isShock,
+            market_stress_level: volatility * 100,
+            actual_result: actualResult,
+            signal_generated: pattern,
+            scenario_id: null, // Will link by pattern match later
+            antifragile_score: actualResult === 'WIN' ? (30 + (isShock ? 25 : 0)) : 0,
+            metadata: {
+              test_iteration: i + 1,
+              target_scenario: targetScenario.number,
+              matched_scenario: matchedScenario?.number || null,
+              pattern_detected: pattern,
+              context_detected: context.type,
+              reason: matchedScenario 
+                ? `Matched scenario #${matchedScenario.number}: ${matchedScenario.pattern} in ${matchedScenario.context_type}`
+                : `No exact match - Pattern: ${pattern}, Context: ${context.type}`,
+            },
+          };
+
+          const { error: memoryError } = await supabase
+            .from('market_memories')
+            .insert(memoryData);
+
+          if (memoryError) {
+            console.error(`Error inserting memory for test ${i + 1}:`, memoryError);
+          }
+
+          // Record learning if WIN or LOSS
+          const learningExplanation = generateLearningExplanation(
+            memoryData,
+            matchedScenario,
+            context,
+            pattern,
+            volatility
+          );
+
+          await supabase
+            .from('antifragile_learning')
+            .insert({
+              learning_type: actualResult === 'WIN' ? 'pattern_evolution' : 'shock_adaptation',
+              trigger_event: `Test #${i + 1}: ${pattern} - ${actualResult}`,
+              before_state: { pattern, context: context.type, volatility },
+              after_state: { 
+                result: actualResult,
+                scenario_matched: matchedScenario?.number,
+                explanation: learningExplanation,
+              },
+              improvement_delta: actualResult === 'WIN' ? 0.01 : -0.01,
+              volatility_at_learning: volatility,
+              stress_level_at_learning: volatility * 100,
+              scenarios_affected: matchedScenario ? [matchedScenario.number] : [],
+              notes: learningExplanation,
+            });
+
+          testResults.push({
+            iteration: i + 1,
+            asset: testAsset,
+            timeframe: testTimeframe,
+            pattern,
+            context: context.type,
+            matchedScenario: matchedScenario?.number,
+            result: actualResult,
+            volatility,
+            isShock,
+          });
+        }
+
+        // Generate summary statistics
+        const totalWins = testResults.filter(r => r.result === 'WIN').length;
+        const totalLosses = testResults.filter(r => r.result === 'LOSS').length;
+        const winRate = (totalWins / testCount) * 100;
+        
+        const scenariosCovered = Object.entries(scenarioHits)
+          .filter(([_, data]) => data.hits > 0)
+          .length;
+        
+        const topPerformingScenarios = Object.entries(scenarioHits)
+          .filter(([_, data]) => data.hits > 0)
+          .map(([num, data]) => ({
+            scenario: parseInt(num),
+            hits: data.hits,
+            wins: data.wins,
+            losses: data.losses,
+            winRate: data.hits > 0 ? (data.wins / data.hits) * 100 : 0,
+          }))
+          .sort((a, b) => b.winRate - a.winRate)
+          .slice(0, 10);
+
+        const worstPerformingScenarios = Object.entries(scenarioHits)
+          .filter(([_, data]) => data.hits > 0)
+          .map(([num, data]) => ({
+            scenario: parseInt(num),
+            hits: data.hits,
+            wins: data.wins,
+            losses: data.losses,
+            winRate: data.hits > 0 ? (data.wins / data.hits) * 100 : 0,
+          }))
+          .sort((a, b) => a.winRate - b.winRate)
+          .slice(0, 10);
+
+        // Create comprehensive report
+        const reportSummary = `
+BATCH TEST REPORT - ${testCount} ITERATIONS
+==========================================
+Total Tests: ${testCount}
+Total Wins: ${totalWins} (${winRate.toFixed(2)}%)
+Total Losses: ${totalLosses} (${(100 - winRate).toFixed(2)}%)
+Scenarios Covered: ${scenariosCovered}/100
+
+TOP 10 PERFORMING SCENARIOS:
+${topPerformingScenarios.map(s => `  #${s.scenario}: ${s.wins}/${s.hits} (${s.winRate.toFixed(1)}%)`).join('\n')}
+
+WORST 10 PERFORMING SCENARIOS:
+${worstPerformingScenarios.map(s => `  #${s.scenario}: ${s.wins}/${s.hits} (${s.winRate.toFixed(1)}%)`).join('\n')}
+        `.trim();
+
+        console.log(reportSummary);
+
+        // Save batch test report
+        await supabase
+          .from('micro_reports')
+          .insert({
+            report_type: 'batch_test',
+            title: `Batch Test Report - ${testCount} Iterations`,
+            summary: reportSummary,
+            asset: 'ALL',
+            timeframe: 'ALL',
+            performance_metrics: {
+              total_tests: testCount,
+              total_wins: totalWins,
+              total_losses: totalLosses,
+              win_rate: winRate,
+              scenarios_covered: scenariosCovered,
+              top_scenarios: topPerformingScenarios,
+              worst_scenarios: worstPerformingScenarios,
+            },
+            patterns_identified: [...new Set(testResults.map(r => r.pattern))],
+            confidence_score: winRate,
+            ai_generated: true,
+            key_insights: [
+              { type: 'coverage', value: `${scenariosCovered}/100 scenarios tested` },
+              { type: 'performance', value: `${winRate.toFixed(2)}% win rate` },
+              { type: 'volatility', value: `${testResults.filter(r => r.isShock).length} shock events` },
+            ],
+            recommendations: [
+              winRate > 60 ? 'System performing above average' : 'Review underperforming scenarios',
+              scenariosCovered < 50 ? 'Need more diverse pattern detection' : 'Good scenario coverage',
+            ],
+          });
+
+        return new Response(
+          JSON.stringify({ 
+            success: true,
+            summary: {
+              total_tests: testCount,
+              total_wins: totalWins,
+              total_losses: totalLosses,
+              win_rate: winRate,
+              scenarios_covered: scenariosCovered,
+              top_scenarios: topPerformingScenarios,
+              worst_scenarios: worstPerformingScenarios,
+            },
+            report: reportSummary,
+            details: testResults,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
