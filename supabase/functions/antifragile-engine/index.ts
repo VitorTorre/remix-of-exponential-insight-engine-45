@@ -1041,12 +1041,12 @@ serve(async (req) => {
           
           // Simulate result based on probability
           const random = Math.random();
-          const baseProb = matchedScenario ? (matchedScenario.probability_score || 0.5) : 0.4;
+          const baseProb = matchedScenario ? 0.5 : 0.4;
           const actualResult = random < baseProb ? 'WIN' : 'LOSS';
           
           // Track scenario hits
           if (matchedScenario) {
-            const scenarioNum = matchedScenario.scenario_number;
+            const scenarioNum = matchedScenario.number;
             scenarioHits[scenarioNum].hits++;
             if (actualResult === 'WIN') {
               scenarioHits[scenarioNum].wins++;
@@ -1067,16 +1067,16 @@ serve(async (req) => {
             market_stress_level: volatility * 100,
             actual_result: actualResult,
             signal_generated: pattern,
-            scenario_id: matchedScenario?.id || null,
+            scenario_id: null, // Will link by pattern match later
             antifragile_score: actualResult === 'WIN' ? (30 + (isShock ? 25 : 0)) : 0,
             metadata: {
               test_iteration: i + 1,
               target_scenario: targetScenario.number,
-              matched_scenario: matchedScenario?.scenario_number || null,
+              matched_scenario: matchedScenario?.number || null,
               pattern_detected: pattern,
               context_detected: context.type,
               reason: matchedScenario 
-                ? `Matched scenario #${matchedScenario.scenario_number}: ${matchedScenario.pattern_name} in ${matchedScenario.context_type}`
+                ? `Matched scenario #${matchedScenario.number}: ${matchedScenario.pattern} in ${matchedScenario.context_type}`
                 : `No exact match - Pattern: ${pattern}, Context: ${context.type}`,
             },
           };
