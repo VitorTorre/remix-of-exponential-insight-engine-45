@@ -1106,13 +1106,13 @@ serve(async (req) => {
               before_state: { pattern, context: context.type, volatility },
               after_state: { 
                 result: actualResult,
-                scenario_matched: matchedScenario?.scenario_number,
+                scenario_matched: matchedScenario?.number,
                 explanation: learningExplanation,
               },
               improvement_delta: actualResult === 'WIN' ? 0.01 : -0.01,
               volatility_at_learning: volatility,
               stress_level_at_learning: volatility * 100,
-              scenarios_affected: matchedScenario ? [matchedScenario.scenario_number] : [],
+              scenarios_affected: matchedScenario ? [matchedScenario.number] : [],
               notes: learningExplanation,
             });
 
