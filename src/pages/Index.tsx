@@ -91,6 +91,12 @@ const Index = () => {
           <AnalysisReport />
           <OperationsHistory operations={operations} />
         </div>
+
+        {/* Sixth Row - Antifragile System */}
+        <AntifragileDashboard 
+          asset={selectedAsset} 
+          timeframe={selectedTimeframe} 
+        />
       </main>
     </div>
   );
