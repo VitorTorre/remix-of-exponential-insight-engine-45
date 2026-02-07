@@ -129,13 +129,14 @@ interface CandleData {
 }
 
 interface MetaAnalysisRequest {
-  action: 'analyze' | 'learn' | 'export' | 'seed_scenarios' | 'get_memories' | 'create_report';
+  action: 'analyze' | 'learn' | 'export' | 'seed_scenarios' | 'get_memories' | 'create_report' | 'batch_test';
   asset?: string;
   timeframe?: string;
   candles?: CandleData[];
   operationResult?: 'WIN' | 'LOSS' | 'NEUTRAL';
   exportType?: 'operations' | 'micro_reports';
   filters?: Record<string, any>;
+  testCount?: number;
 }
 
 // Identificar padrão de vela
