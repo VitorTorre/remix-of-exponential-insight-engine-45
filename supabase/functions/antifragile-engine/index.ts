@@ -250,52 +250,60 @@ function calculateAntifragileScore(
 // Generate detailed explanation for WIN or LOSS
 function generateLearningExplanation(
   memory: any,
-  result: 'WIN' | 'LOSS' | 'NEUTRAL',
-  antifragileScore: number
+  matchedScenario: any,
+  context: { type: string; description: string },
+  pattern: string,
+  volatility: number
 ): string {
-  const pattern = memory.pattern_scenarios?.pattern_name || 'Padrão não identificado';
-  const context = memory.pattern_scenarios?.context_description || 'Contexto não classificado';
-  const expectedDirection = memory.pattern_scenarios?.expected_direction || 'LATERAL';
-  const volatility = ((memory.volatility_index || 0) * 100).toFixed(2);
+  const result = memory.actual_result || 'NEUTRAL';
+  const scenarioName = matchedScenario?.pattern || pattern;
+  const contextDesc = matchedScenario?.context || context.description;
+  const expectedDirection = matchedScenario?.direction || 'LATERAL';
+  const volPercent = (volatility * 100).toFixed(2);
   const isShock = memory.is_shock_event;
+  const antifragileScore = memory.antifragile_score || 0;
   
   if (result === 'WIN') {
-    let explanation = `✅ ACERTO: ${pattern} em contexto ${context}. `;
+    let explanation = `✅ ACERTO: ${scenarioName} em contexto ${contextDesc}. `;
     
     if (isShock) {
-      explanation += `DESTAQUE: Operação bem-sucedida durante evento de choque (vol: ${volatility}%). `;
+      explanation += `DESTAQUE: Operação bem-sucedida durante evento de choque (vol: ${volPercent}%). `;
       explanation += `O sistema demonstrou antifragilidade ao lucrar em condições extremas. `;
-    } else if (parseFloat(volatility) > 2) {
-      explanation += `Volatilidade elevada (${volatility}%) indicou oportunidade. `;
+    } else if (volatility > 0.02) {
+      explanation += `Volatilidade elevada (${volPercent}%) indicou oportunidade. `;
     } else {
-      explanation += `Condições de mercado normais (vol: ${volatility}%). `;
+      explanation += `Condições de mercado normais (vol: ${volPercent}%). `;
     }
     
     explanation += `Direção esperada: ${expectedDirection}. `;
     explanation += `Score antifrágil: ${antifragileScore}. `;
     explanation += `REFORÇO: Este padrão deve ser priorizado em contextos similares.`;
     
+    if (matchedScenario) {
+      explanation += ` Cenário #${matchedScenario.number} validado.`;
+    }
+    
     return explanation;
   } else if (result === 'LOSS') {
-    let explanation = `❌ ERRO: ${pattern} em contexto ${context}. `;
+    let explanation = `❌ ERRO: ${scenarioName} em contexto ${contextDesc}. `;
     
     if (isShock) {
-      explanation += `ALERTA: Falha durante evento de choque (vol: ${volatility}%). `;
+      explanation += `ALERTA: Falha durante evento de choque (vol: ${volPercent}%). `;
       explanation += `O sistema precisa se adaptar para volatilidade extrema. `;
-    } else if (parseFloat(volatility) < 0.5) {
-      explanation += `Volatilidade muito baixa (${volatility}%) gerou sinal fraco. `;
+    } else if (volatility < 0.005) {
+      explanation += `Volatilidade muito baixa (${volPercent}%) gerou sinal fraco. `;
       explanation += `APRENDIZADO: Evitar operações em mercados laterais sem direção. `;
     } else {
-      explanation += `Volatilidade: ${volatility}%. `;
+      explanation += `Volatilidade: ${volPercent}%. `;
     }
     
     explanation += `Direção esperada: ${expectedDirection}, porém mercado não confirmou. `;
     explanation += `CORREÇÃO NECESSÁRIA: `;
     
-    if (memory.pattern_scenarios?.probability_score < 0.5) {
-      explanation += `Probabilidade do cenário era baixa (${((memory.pattern_scenarios?.probability_score || 0) * 100).toFixed(0)}%). Aumentar filtro de qualidade.`;
+    if (matchedScenario) {
+      explanation += `Cenário #${matchedScenario.number} falhou. Revisar condições de entrada.`;
     } else {
-      explanation += `Verificar se o contexto foi corretamente identificado. Considerar indicadores adicionais.`;
+      explanation += `Nenhum cenário correspondente encontrado. Considerar adicionar novo padrão.`;
     }
     
     return explanation;
