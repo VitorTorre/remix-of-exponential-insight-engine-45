@@ -246,6 +246,63 @@ function calculateAntifragileScore(
   return Math.max(0, Math.min(100, score));
 }
 
+// Generate detailed explanation for WIN or LOSS
+function generateLearningExplanation(
+  memory: any,
+  result: 'WIN' | 'LOSS' | 'NEUTRAL',
+  antifragileScore: number
+): string {
+  const pattern = memory.pattern_scenarios?.pattern_name || 'Padrão não identificado';
+  const context = memory.pattern_scenarios?.context_description || 'Contexto não classificado';
+  const expectedDirection = memory.pattern_scenarios?.expected_direction || 'LATERAL';
+  const volatility = ((memory.volatility_index || 0) * 100).toFixed(2);
+  const isShock = memory.is_shock_event;
+  
+  if (result === 'WIN') {
+    let explanation = `✅ ACERTO: ${pattern} em contexto ${context}. `;
+    
+    if (isShock) {
+      explanation += `DESTAQUE: Operação bem-sucedida durante evento de choque (vol: ${volatility}%). `;
+      explanation += `O sistema demonstrou antifragilidade ao lucrar em condições extremas. `;
+    } else if (parseFloat(volatility) > 2) {
+      explanation += `Volatilidade elevada (${volatility}%) indicou oportunidade. `;
+    } else {
+      explanation += `Condições de mercado normais (vol: ${volatility}%). `;
+    }
+    
+    explanation += `Direção esperada: ${expectedDirection}. `;
+    explanation += `Score antifrágil: ${antifragileScore}. `;
+    explanation += `REFORÇO: Este padrão deve ser priorizado em contextos similares.`;
+    
+    return explanation;
+  } else if (result === 'LOSS') {
+    let explanation = `❌ ERRO: ${pattern} em contexto ${context}. `;
+    
+    if (isShock) {
+      explanation += `ALERTA: Falha durante evento de choque (vol: ${volatility}%). `;
+      explanation += `O sistema precisa se adaptar para volatilidade extrema. `;
+    } else if (parseFloat(volatility) < 0.5) {
+      explanation += `Volatilidade muito baixa (${volatility}%) gerou sinal fraco. `;
+      explanation += `APRENDIZADO: Evitar operações em mercados laterais sem direção. `;
+    } else {
+      explanation += `Volatilidade: ${volatility}%. `;
+    }
+    
+    explanation += `Direção esperada: ${expectedDirection}, porém mercado não confirmou. `;
+    explanation += `CORREÇÃO NECESSÁRIA: `;
+    
+    if (memory.pattern_scenarios?.probability_score < 0.5) {
+      explanation += `Probabilidade do cenário era baixa (${((memory.pattern_scenarios?.probability_score || 0) * 100).toFixed(0)}%). Aumentar filtro de qualidade.`;
+    } else {
+      explanation += `Verificar se o contexto foi corretamente identificado. Considerar indicadores adicionais.`;
+    }
+    
+    return explanation;
+  }
+  
+  return `Resultado neutro. Sem alteração significativa na estratégia.`;
+}
+
 // Match scenario with current market conditions
 function matchScenario(
   context: { type: string; description: string },
