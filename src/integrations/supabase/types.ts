@@ -14,6 +14,275 @@ export type Database = {
   }
   public: {
     Tables: {
+      antifragile_learning: {
+        Row: {
+          after_state: Json
+          before_state: Json
+          created_at: string | null
+          id: string
+          improvement_delta: number | null
+          learning_type: string
+          notes: string | null
+          scenarios_affected: number[] | null
+          stress_level_at_learning: number | null
+          trigger_event: string
+          volatility_at_learning: number | null
+        }
+        Insert: {
+          after_state: Json
+          before_state: Json
+          created_at?: string | null
+          id?: string
+          improvement_delta?: number | null
+          learning_type: string
+          notes?: string | null
+          scenarios_affected?: number[] | null
+          stress_level_at_learning?: number | null
+          trigger_event: string
+          volatility_at_learning?: number | null
+        }
+        Update: {
+          after_state?: Json
+          before_state?: Json
+          created_at?: string | null
+          id?: string
+          improvement_delta?: number | null
+          learning_type?: string
+          notes?: string | null
+          scenarios_affected?: number[] | null
+          stress_level_at_learning?: number | null
+          trigger_event?: string
+          volatility_at_learning?: number | null
+        }
+        Relationships: []
+      }
+      csv_exports: {
+        Row: {
+          created_at: string | null
+          export_type: string
+          file_content: string
+          file_name: string
+          filters_applied: Json | null
+          id: string
+          records_count: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          export_type: string
+          file_content: string
+          file_name: string
+          filters_applied?: Json | null
+          id?: string
+          records_count?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          export_type?: string
+          file_content?: string
+          file_name?: string
+          filters_applied?: Json | null
+          id?: string
+          records_count?: number | null
+        }
+        Relationships: []
+      }
+      market_memories: {
+        Row: {
+          actual_result: string | null
+          antifragile_score: number | null
+          asset: string
+          candles_after: Json | null
+          candles_before: Json
+          created_at: string | null
+          final_direction: string | null
+          id: string
+          is_shock_event: boolean | null
+          learning_weight: number | null
+          market_stress_level: number | null
+          max_adverse: number | null
+          max_favorable: number | null
+          metadata: Json | null
+          notes: string | null
+          pattern_candle: Json
+          scenario_id: string | null
+          signal_generated: string | null
+          timeframe: string
+          volatility_index: number | null
+        }
+        Insert: {
+          actual_result?: string | null
+          antifragile_score?: number | null
+          asset: string
+          candles_after?: Json | null
+          candles_before: Json
+          created_at?: string | null
+          final_direction?: string | null
+          id?: string
+          is_shock_event?: boolean | null
+          learning_weight?: number | null
+          market_stress_level?: number | null
+          max_adverse?: number | null
+          max_favorable?: number | null
+          metadata?: Json | null
+          notes?: string | null
+          pattern_candle: Json
+          scenario_id?: string | null
+          signal_generated?: string | null
+          timeframe: string
+          volatility_index?: number | null
+        }
+        Update: {
+          actual_result?: string | null
+          antifragile_score?: number | null
+          asset?: string
+          candles_after?: Json | null
+          candles_before?: Json
+          created_at?: string | null
+          final_direction?: string | null
+          id?: string
+          is_shock_event?: boolean | null
+          learning_weight?: number | null
+          market_stress_level?: number | null
+          max_adverse?: number | null
+          max_favorable?: number | null
+          metadata?: Json | null
+          notes?: string | null
+          pattern_candle?: Json
+          scenario_id?: string | null
+          signal_generated?: string | null
+          timeframe?: string
+          volatility_index?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_memories_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "pattern_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      micro_reports: {
+        Row: {
+          ai_generated: boolean | null
+          asset: string | null
+          confidence_score: number | null
+          created_at: string | null
+          detailed_analysis: string | null
+          id: string
+          key_insights: Json | null
+          patterns_identified: string[] | null
+          performance_metrics: Json | null
+          recommendations: string[] | null
+          report_type: string
+          scenarios_matched: number[] | null
+          summary: string
+          timeframe: string | null
+          title: string
+          volatility_analysis: Json | null
+        }
+        Insert: {
+          ai_generated?: boolean | null
+          asset?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          detailed_analysis?: string | null
+          id?: string
+          key_insights?: Json | null
+          patterns_identified?: string[] | null
+          performance_metrics?: Json | null
+          recommendations?: string[] | null
+          report_type: string
+          scenarios_matched?: number[] | null
+          summary: string
+          timeframe?: string | null
+          title: string
+          volatility_analysis?: Json | null
+        }
+        Update: {
+          ai_generated?: boolean | null
+          asset?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          detailed_analysis?: string | null
+          id?: string
+          key_insights?: Json | null
+          patterns_identified?: string[] | null
+          performance_metrics?: Json | null
+          recommendations?: string[] | null
+          report_type?: string
+          scenarios_matched?: number[] | null
+          summary?: string
+          timeframe?: string | null
+          title?: string
+          volatility_analysis?: Json | null
+        }
+        Relationships: []
+      }
+      pattern_scenarios: {
+        Row: {
+          accuracy: number | null
+          ai_confidence: number | null
+          context_description: string
+          context_type: string
+          created_at: string | null
+          discovered_by_ai: boolean | null
+          expected_direction: string
+          expected_outcome: string
+          id: string
+          is_base_scenario: boolean | null
+          metadata: Json | null
+          pattern_name: string
+          pattern_type: string
+          probability_score: number | null
+          scenario_number: number
+          successful_occurrences: number | null
+          total_occurrences: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          accuracy?: number | null
+          ai_confidence?: number | null
+          context_description: string
+          context_type: string
+          created_at?: string | null
+          discovered_by_ai?: boolean | null
+          expected_direction: string
+          expected_outcome: string
+          id?: string
+          is_base_scenario?: boolean | null
+          metadata?: Json | null
+          pattern_name: string
+          pattern_type: string
+          probability_score?: number | null
+          scenario_number: number
+          successful_occurrences?: number | null
+          total_occurrences?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          accuracy?: number | null
+          ai_confidence?: number | null
+          context_description?: string
+          context_type?: string
+          created_at?: string | null
+          discovered_by_ai?: boolean | null
+          expected_direction?: string
+          expected_outcome?: string
+          id?: string
+          is_base_scenario?: boolean | null
+          metadata?: Json | null
+          pattern_name?: string
+          pattern_type?: string
+          probability_score?: number | null
+          scenario_number?: number
+          successful_occurrences?: number | null
+          total_occurrences?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       performance_metrics: {
         Row: {
           accuracy: number | null
@@ -145,6 +414,70 @@ export type Database = {
           weight?: number | null
         }
         Relationships: []
+      }
+      system_annotations: {
+        Row: {
+          annotation_type: string
+          content: string
+          created_at: string | null
+          id: string
+          importance_level: number | null
+          is_ai_generated: boolean | null
+          related_memory_id: string | null
+          related_report_id: string | null
+          related_scenario_id: string | null
+          tags: string[] | null
+          title: string
+        }
+        Insert: {
+          annotation_type: string
+          content: string
+          created_at?: string | null
+          id?: string
+          importance_level?: number | null
+          is_ai_generated?: boolean | null
+          related_memory_id?: string | null
+          related_report_id?: string | null
+          related_scenario_id?: string | null
+          tags?: string[] | null
+          title: string
+        }
+        Update: {
+          annotation_type?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          importance_level?: number | null
+          is_ai_generated?: boolean | null
+          related_memory_id?: string | null
+          related_report_id?: string | null
+          related_scenario_id?: string | null
+          tags?: string[] | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "system_annotations_related_memory_id_fkey"
+            columns: ["related_memory_id"]
+            isOneToOne: false
+            referencedRelation: "market_memories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "system_annotations_related_report_id_fkey"
+            columns: ["related_report_id"]
+            isOneToOne: false
+            referencedRelation: "micro_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "system_annotations_related_scenario_id_fkey"
+            columns: ["related_scenario_id"]
+            isOneToOne: false
+            referencedRelation: "pattern_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
