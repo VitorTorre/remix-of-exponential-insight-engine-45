@@ -246,6 +246,63 @@ function calculateAntifragileScore(
   return Math.max(0, Math.min(100, score));
 }
 
+// Generate detailed explanation for WIN or LOSS
+function generateLearningExplanation(
+  memory: any,
+  result: 'WIN' | 'LOSS' | 'NEUTRAL',
+  antifragileScore: number
+): string {
+  const pattern = memory.pattern_scenarios?.pattern_name || 'Padrão não identificado';
+  const context = memory.pattern_scenarios?.context_description || 'Contexto não classificado';
+  const expectedDirection = memory.pattern_scenarios?.expected_direction || 'LATERAL';
+  const volatility = ((memory.volatility_index || 0) * 100).toFixed(2);
+  const isShock = memory.is_shock_event;
+  
+  if (result === 'WIN') {
+    let explanation = `✅ ACERTO: ${pattern} em contexto ${context}. `;
+    
+    if (isShock) {
+      explanation += `DESTAQUE: Operação bem-sucedida durante evento de choque (vol: ${volatility}%). `;
+      explanation += `O sistema demonstrou antifragilidade ao lucrar em condições extremas. `;
+    } else if (parseFloat(volatility) > 2) {
+      explanation += `Volatilidade elevada (${volatility}%) indicou oportunidade. `;
+    } else {
+      explanation += `Condições de mercado normais (vol: ${volatility}%). `;
+    }
+    
+    explanation += `Direção esperada: ${expectedDirection}. `;
+    explanation += `Score antifrágil: ${antifragileScore}. `;
+    explanation += `REFORÇO: Este padrão deve ser priorizado em contextos similares.`;
+    
+    return explanation;
+  } else if (result === 'LOSS') {
+    let explanation = `❌ ERRO: ${pattern} em contexto ${context}. `;
+    
+    if (isShock) {
+      explanation += `ALERTA: Falha durante evento de choque (vol: ${volatility}%). `;
+      explanation += `O sistema precisa se adaptar para volatilidade extrema. `;
+    } else if (parseFloat(volatility) < 0.5) {
+      explanation += `Volatilidade muito baixa (${volatility}%) gerou sinal fraco. `;
+      explanation += `APRENDIZADO: Evitar operações em mercados laterais sem direção. `;
+    } else {
+      explanation += `Volatilidade: ${volatility}%. `;
+    }
+    
+    explanation += `Direção esperada: ${expectedDirection}, porém mercado não confirmou. `;
+    explanation += `CORREÇÃO NECESSÁRIA: `;
+    
+    if (memory.pattern_scenarios?.probability_score < 0.5) {
+      explanation += `Probabilidade do cenário era baixa (${((memory.pattern_scenarios?.probability_score || 0) * 100).toFixed(0)}%). Aumentar filtro de qualidade.`;
+    } else {
+      explanation += `Verificar se o contexto foi corretamente identificado. Considerar indicadores adicionais.`;
+    }
+    
+    return explanation;
+  }
+  
+  return `Resultado neutro. Sem alteração significativa na estratégia.`;
+}
+
 // Match scenario with current market conditions
 function matchScenario(
   context: { type: string; description: string },
@@ -438,31 +495,55 @@ serve(async (req) => {
           });
         }
 
-        // Record learning event
+        // Generate detailed explanation for WIN or LOSS
+        const analysisExplanation = generateLearningExplanation(
+          memory,
+          operationResult,
+          antifragileScore
+        );
+
+        // Record learning event with detailed explanation
         await supabase
           .from('antifragile_learning')
           .insert({
             learning_type: memory.is_shock_event ? 'shock_adaptation' : 'pattern_evolution',
             trigger_event: `${operationResult} em ${memory.asset}`,
-            before_state: { scenario_probability: memory.pattern_scenarios?.probability_score },
-            after_state: { antifragile_score: antifragileScore },
+            before_state: { 
+              scenario_probability: memory.pattern_scenarios?.probability_score,
+              pattern: memory.pattern_scenarios?.pattern_name,
+              context: memory.pattern_scenarios?.context_description,
+              volatility: memory.volatility_index,
+              signal: memory.signal_generated,
+            },
+            after_state: { 
+              antifragile_score: antifragileScore,
+              learning_weight: operationResult === 'WIN' ? 1.2 : 0.8,
+              explanation: analysisExplanation,
+            },
             improvement_delta: antifragileScore - (memory.antifragile_score || 0),
             scenarios_affected: memory.scenario_id ? [memory.pattern_scenarios?.scenario_number] : [],
             volatility_at_learning: memory.volatility_index,
             stress_level_at_learning: memory.market_stress_level,
+            notes: analysisExplanation,
           });
 
-        // Create annotation
+        // Create annotation with detailed explanation
         await supabase
           .from('system_annotations')
           .insert({
-            annotation_type: 'learning',
+            annotation_type: operationResult === 'WIN' ? 'success_analysis' : 'error_analysis',
             related_memory_id: memory.id,
             related_scenario_id: memory.scenario_id,
-            title: `Aprendizado: ${operationResult}`,
-            content: `Sistema aprendeu com ${operationResult} no cenário ${memory.pattern_scenarios?.pattern_name || 'desconhecido'}. Score antifrágil: ${antifragileScore.toFixed(2)}`,
-            importance_level: memory.is_shock_event ? 5 : 3,
-            tags: [operationResult.toLowerCase(), memory.asset || '', memory.is_shock_event ? 'shock' : 'normal'],
+            title: `${operationResult === 'WIN' ? '✅ Acerto' : '❌ Erro'}: ${memory.pattern_scenarios?.pattern_name || 'Padrão'} em ${memory.asset}`,
+            content: analysisExplanation,
+            importance_level: memory.is_shock_event ? 5 : (operationResult === 'LOSS' ? 4 : 3),
+            tags: [
+              operationResult.toLowerCase(), 
+              memory.asset || '', 
+              memory.is_shock_event ? 'shock' : 'normal',
+              memory.pattern_scenarios?.pattern_name || 'unknown',
+              memory.pattern_scenarios?.context_type || 'unknown',
+            ],
             is_ai_generated: true,
           });
 
@@ -492,29 +573,123 @@ serve(async (req) => {
           throw new Error('No memories to create report from');
         }
 
+        // Get recent learnings for insights
+        const { data: recentLearnings } = await supabase
+          .from('antifragile_learning')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
         const wins = recentMemories.filter(m => m.actual_result === 'WIN').length;
         const losses = recentMemories.filter(m => m.actual_result === 'LOSS').length;
         const avgVolatility = recentMemories.reduce((acc, m) => acc + (m.volatility_index || 0), 0) / recentMemories.length;
         const patterns = [...new Set(recentMemories.map(m => m.pattern_scenarios?.pattern_name).filter(Boolean))];
+        
+        // Analyze patterns that worked vs failed
+        const winPatterns = recentMemories.filter(m => m.actual_result === 'WIN').map(m => m.pattern_scenarios?.pattern_name).filter(Boolean);
+        const lossPatterns = recentMemories.filter(m => m.actual_result === 'LOSS').map(m => m.pattern_scenarios?.pattern_name).filter(Boolean);
+        
+        const patternWinCount: Record<string, number> = {};
+        const patternLossCount: Record<string, number> = {};
+        winPatterns.forEach(p => patternWinCount[p] = (patternWinCount[p] || 0) + 1);
+        lossPatterns.forEach(p => patternLossCount[p] = (patternLossCount[p] || 0) + 1);
+
+        // Generate insights about what worked and what failed
+        const keyInsights = [
+          { insight: `Taxa de acerto: ${((wins / (wins + losses)) * 100 || 0).toFixed(1)}%`, importance: 'high' },
+          { insight: `Volatilidade média: ${(avgVolatility * 100).toFixed(2)}%`, importance: 'medium' },
+        ];
+
+        // Add pattern-specific insights
+        Object.entries(patternWinCount).forEach(([pattern, count]) => {
+          if (count >= 2) {
+            keyInsights.push({
+              insight: `✅ Padrão "${pattern}" acertou ${count}x - REFORÇAR este cenário`,
+              importance: 'high'
+            });
+          }
+        });
+
+        Object.entries(patternLossCount).forEach(([pattern, count]) => {
+          if (count >= 2) {
+            keyInsights.push({
+              insight: `❌ Padrão "${pattern}" errou ${count}x - REVISAR e ajustar filtros`,
+              importance: 'high'
+            });
+          }
+        });
+
+        // Add learning insights
+        recentLearnings?.forEach(learning => {
+          if (learning.notes) {
+            keyInsights.push({
+              insight: learning.notes.substring(0, 200),
+              importance: learning.improvement_delta > 0 ? 'high' : 'medium'
+            });
+          }
+        });
+
+        // Generate detailed analysis
+        let detailedAnalysis = `## Análise de Performance\n\n`;
+        detailedAnalysis += `- **Operações**: ${recentMemories.length} analisadas\n`;
+        detailedAnalysis += `- **Taxa de Acerto**: ${((wins / (wins + losses)) * 100 || 0).toFixed(1)}%\n`;
+        detailedAnalysis += `- **Volatilidade Média**: ${(avgVolatility * 100).toFixed(2)}%\n`;
+        detailedAnalysis += `- **Eventos de Choque**: ${recentMemories.filter(m => m.is_shock_event).length}\n\n`;
+        
+        detailedAnalysis += `## Padrões que FUNCIONARAM\n`;
+        Object.entries(patternWinCount).forEach(([pattern, count]) => {
+          detailedAnalysis += `- ${pattern}: ${count} acerto(s)\n`;
+        });
+        
+        detailedAnalysis += `\n## Padrões que FALHARAM\n`;
+        Object.entries(patternLossCount).forEach(([pattern, count]) => {
+          detailedAnalysis += `- ${pattern}: ${count} erro(s) - NECESSITA REVISÃO\n`;
+        });
+        
+        detailedAnalysis += `\n## Recomendações de Aprendizado\n`;
+        if (wins > losses) {
+          detailedAnalysis += `- Manter estratégia atual com os padrões vencedores\n`;
+          detailedAnalysis += `- Aumentar peso dos cenários bem-sucedidos\n`;
+        } else {
+          detailedAnalysis += `- Reduzir exposição temporariamente\n`;
+          detailedAnalysis += `- Aumentar filtro de qualidade para sinais\n`;
+          detailedAnalysis += `- Revisar contextos onde os padrões falharam\n`;
+        }
 
         const report = {
-          report_type: 'pattern',
+          report_type: 'pattern_analysis',
           asset: asset || 'MULTI',
           timeframe: timeframe || '5M',
-          title: `Micro Relatório - ${new Date().toLocaleDateString('pt-BR')}`,
-          summary: `${recentMemories.length} operações analisadas. Taxa de acerto: ${((wins / (wins + losses)) * 100 || 0).toFixed(1)}%`,
-          detailed_analysis: `Volatilidade média: ${(avgVolatility * 100).toFixed(2)}%. Padrões mais frequentes: ${patterns.slice(0, 3).join(', ')}`,
+          title: `Micro Relatório de Aprendizado - ${new Date().toLocaleDateString('pt-BR')}`,
+          summary: `${recentMemories.length} operações: ${wins} acertos, ${losses} erros. Taxa: ${((wins / (wins + losses)) * 100 || 0).toFixed(1)}%`,
+          detailed_analysis: detailedAnalysis,
           patterns_identified: patterns,
           scenarios_matched: recentMemories.map(m => m.pattern_scenarios?.scenario_number).filter(Boolean),
-          key_insights: [
-            { insight: `Taxa de acerto: ${((wins / (wins + losses)) * 100 || 0).toFixed(1)}%`, importance: 'high' },
-            { insight: `Volatilidade média: ${(avgVolatility * 100).toFixed(2)}%`, importance: 'medium' },
-          ],
-          performance_metrics: { wins, losses, total: recentMemories.length },
-          volatility_analysis: { average: avgVolatility, shockEvents: recentMemories.filter(m => m.is_shock_event).length },
+          key_insights: keyInsights,
+          performance_metrics: { 
+            wins, 
+            losses, 
+            total: recentMemories.length,
+            winPatterns: patternWinCount,
+            lossPatterns: patternLossCount,
+          },
+          volatility_analysis: { 
+            average: avgVolatility, 
+            shockEvents: recentMemories.filter(m => m.is_shock_event).length,
+            highVolOps: recentMemories.filter(m => (m.volatility_index || 0) > 0.02).length,
+          },
           recommendations: wins > losses 
-            ? ['Continuar estratégia atual', 'Aumentar tamanho gradualmente']
-            : ['Revisar cenários de baixa performance', 'Reduzir exposição temporariamente'],
+            ? [
+                'Continuar estratégia atual com padrões vencedores',
+                'Aumentar peso dos cenários bem-sucedidos',
+                'Considerar aumento gradual de posição'
+              ]
+            : [
+                'ALERTA: Taxa de acerto abaixo de 50%',
+                'Revisar cenários de baixa performance imediatamente',
+                'Reduzir exposição até correção do sistema',
+                'Analisar contextos onde os padrões falharam'
+              ],
           ai_generated: true,
           confidence_score: (wins / (wins + losses)) || 0.5,
         };
