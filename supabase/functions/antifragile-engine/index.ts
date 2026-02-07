@@ -527,17 +527,23 @@ serve(async (req) => {
             notes: analysisExplanation,
           });
 
-        // Create annotation
+        // Create annotation with detailed explanation
         await supabase
           .from('system_annotations')
           .insert({
-            annotation_type: 'learning',
+            annotation_type: operationResult === 'WIN' ? 'success_analysis' : 'error_analysis',
             related_memory_id: memory.id,
             related_scenario_id: memory.scenario_id,
-            title: `Aprendizado: ${operationResult}`,
-            content: `Sistema aprendeu com ${operationResult} no cenário ${memory.pattern_scenarios?.pattern_name || 'desconhecido'}. Score antifrágil: ${antifragileScore.toFixed(2)}`,
-            importance_level: memory.is_shock_event ? 5 : 3,
-            tags: [operationResult.toLowerCase(), memory.asset || '', memory.is_shock_event ? 'shock' : 'normal'],
+            title: `${operationResult === 'WIN' ? '✅ Acerto' : '❌ Erro'}: ${memory.pattern_scenarios?.pattern_name || 'Padrão'} em ${memory.asset}`,
+            content: analysisExplanation,
+            importance_level: memory.is_shock_event ? 5 : (operationResult === 'LOSS' ? 4 : 3),
+            tags: [
+              operationResult.toLowerCase(), 
+              memory.asset || '', 
+              memory.is_shock_event ? 'shock' : 'normal',
+              memory.pattern_scenarios?.pattern_name || 'unknown',
+              memory.pattern_scenarios?.context_type || 'unknown',
+            ],
             is_ai_generated: true,
           });
 
